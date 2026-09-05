@@ -458,6 +458,27 @@ def main(argv=None):
     p_batch.add_argument("-i", "--input", required=True)
     p_batch.add_argument("-o", "--output", default="results.csv")
 
+    # Audit (enterprise supervisor)
+    p_audit = subparsers.add_parser("audit", help="Run supervisor audit on a task")
+    p_audit.add_argument("--task-id", required=True, help="Task identifier")
+    p_audit.add_argument("--target", default="KEY-001", help="Target identifier")
+    p_audit.add_argument("--primary", type=float, default=10.0, help="Primary metric")
+    p_audit.add_argument("--secondary", type=float, default=3.0, help="Secondary metric")
+    p_audit.add_argument("--descriptor", default="NOMINAL", help="Status descriptor")
+    p_audit.add_argument("--critical", action="store_true", help="Critical flag")
+
+    # Chat (enterprise supervisory assistant)
+    p_chat = subparsers.add_parser("chat", help="Supervisory chat interface")
+    p_chat.add_argument("query", nargs="+", help="Query text")
+
+    # Verify audit trail
+    p_verify = subparsers.add_parser("verify-audit", help="Verify HMAC audit trail integrity")
+
+    # Serve (FastAPI REST server)
+    p_serve = subparsers.add_parser("serve", help="Start FastAPI REST API server")
+    p_serve.add_argument("--host", default="0.0.0.0", help="Host to bind")
+    p_serve.add_argument("--port", type=int, default=8000, help="Port to bind")
+
     args = parser.parse_args(argv)
 
     if args.command == "tps":
@@ -485,6 +506,45 @@ def main(argv=None):
         count = process_batch(args.input, args.output)
         print(f"Processed {count} records -> {args.output}")
 
+    elif args.command == "audit":
+        from agents.supervisor import SystemSupervisor
+        from agents.models import SystemTaskPayload
+        supervisor = SystemSupervisor(model_provider="mock")
+        payload = SystemTaskPayload(
+            task_id=args.task_id,
+            target_identifier=args.target,
+            primary_metric=args.primary,
+            secondary_metric=args.secondary,
+            status_descriptor=args.descriptor,
+            is_critical_flag=args.critical,
+        )
+        dossier = supervisor.process_task(payload)
+        print(json.dumps(dossier.to_dict(), indent=2, default=str))
+
+    elif args.command == "chat":
+        from agents.supervisor import SystemSupervisor
+        supervisor = SystemSupervisor(model_provider="mock")
+        query = " ".join(args.query)
+        response = supervisor.query_supervisory_chat(query)
+        print(json.dumps({"query": query, "response": response}, indent=2))
+
+    elif args.command == "verify-audit":
+        from agents.base import AuditLogger
+        valid = AuditLogger.verify_integrity()
+        trail_len = len(AuditLogger.get_trail())
+        print(json.dumps({"audit_valid": valid, "trail_length": trail_len}, indent=2))
+
+    elif args.command == "serve":
+        try:
+            import uvicorn
+            from agents.api import app
+            uvicorn.run(app, host=args.host, port=args.port)
+        except ImportError:
+            print("ERROR: uvicorn and fastapi are required. Install with: pip install fastapi uvicorn")
+            sys.exit(1)
+
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
