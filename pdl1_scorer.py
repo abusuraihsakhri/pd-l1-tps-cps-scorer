@@ -2,7 +2,7 @@
 """
 PD-L1 TPS & CPS Immunoscore Calculator
 
-Implements PD-L1 scoring for immunotherapy eligibility assessment:
+Implements numerical PD-L1 scoring for pathology research and education:
   - Tumor Proportion Score (TPS)
   - Combined Positive Score (CPS)
   - Immune Cell (IC) score
@@ -82,6 +82,7 @@ def calculate_tps(pd_l1_positive_tumor_cells: int,
     return {
         "score_type": "TPS",
         "tps": tps,
+        "tps_unrounded": raw_tps,
         "pd_l1_positive_tumor_cells": pd_l1_positive_tumor_cells,
         "total_viable_tumor_cells": total_viable_tumor_cells,
         "tps_category": category,
@@ -150,6 +151,7 @@ def calculate_cps(pd_l1_positive_tumor_cells: int,
     return {
         "score_type": "CPS",
         "cps": cps,
+        "cps_unrounded": raw_cps,
         "pd_l1_positive_tumor_cells": pd_l1_positive_tumor_cells,
         "pd_l1_positive_lymphocytes": pd_l1_positive_lymphocytes,
         "pd_l1_positive_macrophages": pd_l1_positive_macrophages,
@@ -192,7 +194,7 @@ def calculate_ic_score(pd_l1_positive_immune_cells_area: float,
 
     if raw_ic < 1.0:
         category = "IC0"
-        description = "IC <1%: No PD-L1 positive immune cells."
+        description = "IC <1%: Below the 1% area cutoff."
     elif raw_ic < 5.0:
         category = "IC1"
         description = "IC 1-4%: Low immune cell PD-L1 expression."
@@ -361,7 +363,7 @@ def process_batch(input_csv: str, output_csv: str) -> int:
 
         therapy = ""
         try:
-            score = tps_result["tps"] if cancer == "nsclc" else cps_result["cps"]
+            score = tps_result["tps_unrounded"] if cancer == "nsclc" else cps_result["cps_unrounded"]
             interp = interpret_for_cancer_type(score, cancer)
             therapy = interp["therapy"]
         except ValueError:
@@ -378,7 +380,12 @@ def process_batch(input_csv: str, output_csv: str) -> int:
     with open(output_csv, mode="w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=out_fields)
         writer.writeheader()
-        writer.writerows(out_rows)
+        for row in out_rows:
+            # Escape spreadsheet formula prefixes in untrusted CSV text cells.
+            writer.writerow({
+                key: ("'" + value if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")) else value)
+                for key, value in row.items()
+            })
 
     return len(out_rows)
 

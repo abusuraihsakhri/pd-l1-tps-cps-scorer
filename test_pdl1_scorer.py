@@ -240,3 +240,31 @@ def test_batch_requires_columns(tmp_path):
     input_path.write_text("Patient_ID,v1\nP001,3\n", encoding="utf8")
     with pytest.raises(ValueError, match="Missing required CSV columns"):
         process_batch(str(input_path), str(tmp_path / "out.csv"))
+
+
+def test_batch_uses_unrounded_score_for_threshold(tmp_path):
+    input_path = tmp_path / "borderline.csv"
+    output_path = tmp_path / "results.csv"
+    input_path.write_text(
+        "pd_l1_positive_tumor_cells,total_viable_tumor_cells,cancer_type\n"
+        "12,1250,nsclc\n", encoding="utf8"
+    )
+    process_batch(str(input_path), str(output_path))
+    with output_path.open(newline="", encoding="utf8") as fh:
+        row = next(csv.DictReader(fh))
+    assert row["tps_category"] == "Negative"
+    assert row["tps"] == "1.0"
+    assert "No treatment recommendation" in row["therapy_recommendation"]
+
+
+def test_batch_escapes_spreadsheet_formula_fields(tmp_path):
+    input_path = tmp_path / "formula.csv"
+    output_path = tmp_path / "out.csv"
+    input_path.write_text(
+        "pd_l1_positive_tumor_cells,total_viable_tumor_cells,patient_note\n"
+        "1,100,=HYPERLINK(1)\n", encoding="utf8"
+    )
+    process_batch(str(input_path), str(output_path))
+    with output_path.open(newline="", encoding="utf8") as fh:
+        row = next(csv.DictReader(fh))
+    assert row["patient_note"].startswith("'=HYPERLINK")
