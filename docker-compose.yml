@@ -1,13 +1,11 @@
-version: '3.8'
-
-services:
+ services:
   pd-l1-tps-cps-scorer:
     build: .
     container_name: pd-l1-tps-cps-scorer
     ports:
       - "8000:8000"
     environment:
-      - AUDIT_SECRET_KEY=pd-l1-tps-cps-scorer-prod-audit-key-2026
+      - AUDIT_SECRET_KEY=${AUDIT_SECRET_KEY:?Set a strong AUDIT_SECRET_KEY before starting}
       - MODEL_PROVIDER=mock
     restart: unless-stopped
     healthcheck:
