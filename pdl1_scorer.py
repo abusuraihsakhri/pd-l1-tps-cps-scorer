@@ -2,7 +2,7 @@
 """
 PD-L1 TPS & CPS Immunoscore Calculator
 
-Implements PD-L1 scoring for immunotherapy eligibility assessment:
+Implements numerical PD-L1 scoring for pathology research and education:
   - Tumor Proportion Score (TPS)
   - Combined Positive Score (CPS)
   - Immune Cell (IC) score
@@ -19,8 +19,24 @@ License: MIT
 import argparse
 import csv
 import json
+import math
 import sys
 from typing import Dict, Any, Optional
+
+
+def _validate_count(name: str, value: int, *, positive: bool = False) -> None:
+    """Cell counts must be whole, nonnegative numbers (not booleans)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be an integer")
+    if value < (1 if positive else 0):
+        raise ValueError(f"{name} must be {'> 0' if positive else '>= 0'}; got {value}")
+
+
+def _validate_area(name: str, value: float, *, positive: bool = False) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"{name} must be a finite number")
+    if value < 0 or (positive and value == 0):
+        raise ValueError(f"{name} must be {'> 0' if positive else '>= 0'}; got {value}")
 
 
 # ---------------------------------------------------------------------------
@@ -45,19 +61,18 @@ def calculate_tps(pd_l1_positive_tumor_cells: int,
     -------
     dict with tps (float), tps_category, description, interpretation
     """
-    if pd_l1_positive_tumor_cells < 0:
-        raise ValueError(f"pd_l1_positive_tumor_cells must be >= 0; got {pd_l1_positive_tumor_cells}")
-    if total_viable_tumor_cells <= 0:
-        raise ValueError(f"total_viable_tumor_cells must be > 0; got {total_viable_tumor_cells}")
+    _validate_count("pd_l1_positive_tumor_cells", pd_l1_positive_tumor_cells)
+    _validate_count("total_viable_tumor_cells", total_viable_tumor_cells, positive=True)
     if pd_l1_positive_tumor_cells > total_viable_tumor_cells:
         raise ValueError("Positive cells cannot exceed total cells")
 
-    tps = round((pd_l1_positive_tumor_cells / total_viable_tumor_cells) * 100, 1)
+    raw_tps = (pd_l1_positive_tumor_cells / total_viable_tumor_cells) * 100
+    tps = round(raw_tps, 1)
 
-    if tps < 1.0:
+    if raw_tps < 1.0:
         category = "Negative"
-        description = "TPS <1%: No PD-L1 expression detected."
-    elif tps < 50.0:
+        description = "TPS <1%: Below the 1% expression cutoff."
+    elif raw_tps < 50.0:
         category = "Low expression"
         description = "TPS 1-49%: Low PD-L1 expression."
     else:
@@ -67,6 +82,7 @@ def calculate_tps(pd_l1_positive_tumor_cells: int,
     return {
         "score_type": "TPS",
         "tps": tps,
+        "tps_unrounded": raw_tps,
         "pd_l1_positive_tumor_cells": pd_l1_positive_tumor_cells,
         "total_viable_tumor_cells": total_viable_tumor_cells,
         "tps_category": category,
@@ -105,28 +121,27 @@ def calculate_cps(pd_l1_positive_tumor_cells: int,
     -------
     dict with cps (float), cps_category, component counts, interpretation
     """
-    if pd_l1_positive_tumor_cells < 0:
-        raise ValueError("pd_l1_positive_tumor_cells must be >= 0")
-    if pd_l1_positive_lymphocytes < 0:
-        raise ValueError("pd_l1_positive_lymphocytes must be >= 0")
-    if pd_l1_positive_macrophages < 0:
-        raise ValueError("pd_l1_positive_macrophages must be >= 0")
-    if total_viable_tumor_cells <= 0:
-        raise ValueError(f"total_viable_tumor_cells must be > 0; got {total_viable_tumor_cells}")
+    _validate_count("pd_l1_positive_tumor_cells", pd_l1_positive_tumor_cells)
+    _validate_count("pd_l1_positive_lymphocytes", pd_l1_positive_lymphocytes)
+    _validate_count("pd_l1_positive_macrophages", pd_l1_positive_macrophages)
+    _validate_count("total_viable_tumor_cells", total_viable_tumor_cells, positive=True)
+    if pd_l1_positive_tumor_cells > total_viable_tumor_cells:
+        raise ValueError("Positive tumor cells cannot exceed total viable tumor cells")
 
     total_positive = (pd_l1_positive_tumor_cells +
                       pd_l1_positive_lymphocytes +
                       pd_l1_positive_macrophages)
 
-    cps = round((total_positive / total_viable_tumor_cells) * 100, 1)
+    raw_cps = min(100.0, (total_positive / total_viable_tumor_cells) * 100)
+    cps = round(raw_cps, 1)
 
-    if cps < 1.0:
+    if raw_cps < 1.0:
         category = "Negative"
-        description = "CPS <1: No PD-L1 expression detected."
-    elif cps < 10.0:
+        description = "CPS <1: Below the CPS 1 cutoff."
+    elif raw_cps < 10.0:
         category = "Low expression"
         description = "CPS 1-9: Low PD-L1 expression."
-    elif cps < 50.0:
+    elif raw_cps < 50.0:
         category = "Moderate expression"
         description = "CPS 10-49: Moderate PD-L1 expression."
     else:
@@ -136,6 +151,7 @@ def calculate_cps(pd_l1_positive_tumor_cells: int,
     return {
         "score_type": "CPS",
         "cps": cps,
+        "cps_unrounded": raw_cps,
         "pd_l1_positive_tumor_cells": pd_l1_positive_tumor_cells,
         "pd_l1_positive_lymphocytes": pd_l1_positive_lymphocytes,
         "pd_l1_positive_macrophages": pd_l1_positive_macrophages,
@@ -168,19 +184,18 @@ def calculate_ic_score(pd_l1_positive_immune_cells_area: float,
     -------
     dict with ic_score, ic_category, description
     """
-    if pd_l1_positive_immune_cells_area < 0:
-        raise ValueError("pd_l1_positive_immune_cells_area must be >= 0")
-    if total_tumor_area <= 0:
-        raise ValueError(f"total_tumor_area must be > 0; got {total_tumor_area}")
+    _validate_area("pd_l1_positive_immune_cells_area", pd_l1_positive_immune_cells_area)
+    _validate_area("total_tumor_area", total_tumor_area, positive=True)
     if pd_l1_positive_immune_cells_area > total_tumor_area:
         raise ValueError("IC area cannot exceed total tumor area")
 
-    ic = round((pd_l1_positive_immune_cells_area / total_tumor_area) * 100, 1)
+    raw_ic = (pd_l1_positive_immune_cells_area / total_tumor_area) * 100
+    ic = round(raw_ic, 1)
 
-    if ic < 1.0:
+    if raw_ic < 1.0:
         category = "IC0"
-        description = "IC <1%: No PD-L1 positive immune cells."
-    elif ic < 5.0:
+        description = "IC <1%: Below the 1% area cutoff."
+    elif raw_ic < 5.0:
         category = "IC1"
         description = "IC 1-4%: Low immune cell PD-L1 expression."
     else:
@@ -199,72 +214,25 @@ def calculate_ic_score(pd_l1_positive_immune_cells_area: float,
 # Interpretation by Cancer Type
 # ---------------------------------------------------------------------------
 
+# These cutoffs are descriptive scoring strata, NOT prescribing recommendations.
+# Treatment eligibility varies by indication, assay, line of therapy and current labeling.
 CANCER_TYPE_THRESHOLDS = {
-    "nsclc": {
-        "name": "Non-Small Cell Lung Cancer (NSCLC)",
-        "score_type": "TPS",
-        "thresholds": [
-            {"min": 50.0, "label": "TPS >=50%", "therapy": "Pembrolizumab monotherapy (1st line)"},
-            {"min": 1.0, "label": "TPS 1-49%", "therapy": "Pembrolizumab + chemotherapy (1st line)"},
-            {"min": 0.0, "label": "TPS <1%", "therapy": "PD-L1 negative; consider chemotherapy"},
-        ],
-    },
-    "gastric": {
-        "name": "Gastric/GEJ Adenocarcinoma",
-        "score_type": "CPS",
-        "thresholds": [
-            {"min": 10.0, "label": "CPS >=10", "therapy": "Pembrolizumab (3rd line or 1st line if CPS >=10)"},
-            {"min": 5.0, "label": "CPS >=5", "therapy": "Pembrolizumab (3rd line)"},
-            {"min": 1.0, "label": "CPS 1-4", "therapy": "Limited data; consider clinical trial"},
-            {"min": 0.0, "label": "CPS <1", "therapy": "PD-L1 negative; pembrolizumab not indicated"},
-        ],
-    },
-    "tnbc": {
-        "name": "Triple-Negative Breast Cancer (TNBC)",
-        "score_type": "CPS",
-        "thresholds": [
-            {"min": 10.0, "label": "CPS >=10", "therapy": "Pembrolizumab + chemotherapy (1st line)"},
-            {"min": 1.0, "label": "CPS 1-9", "therapy": "Consider pembrolizumab + chemo (1st line)"},
-            {"min": 0.0, "label": "CPS <1", "therapy": "PD-L1 negative; pembrolizumab not indicated"},
-        ],
-    },
-    "urothelial": {
-        "name": "Urothelial Carcinoma",
-        "score_type": "CPS",
-        "thresholds": [
-            {"min": 10.0, "label": "CPS >=10", "therapy": "Pembrolizumab (2nd line or 1st line cisplatin-ineligible)"},
-            {"min": 1.0, "label": "CPS 1-9", "therapy": "Pembrolizumab (2nd line if cisplatin-ineligible)"},
-            {"min": 0.0, "label": "CPS <1", "therapy": "PD-L1 negative; pembrolizumab not indicated for 1st line"},
-        ],
-    },
-    "cervical": {
-        "name": "Cervical Cancer",
-        "score_type": "CPS",
-        "thresholds": [
-            {"min": 1.0, "label": "CPS >=1", "therapy": "Pembrolizumab + chemotherapy (1st line)"},
-            {"min": 0.0, "label": "CPS <1", "therapy": "PD-L1 negative; pembrolizumab not indicated"},
-        ],
-    },
-    "esophageal": {
-        "name": "Esophageal Squamous Cell Carcinoma",
-        "score_type": "CPS",
-        "thresholds": [
-            {"min": 10.0, "label": "CPS >=10", "therapy": "Pembrolizumab + chemotherapy (1st line)"},
-            {"min": 1.0, "label": "CPS 1-9", "therapy": "Limited data; consider clinical trial"},
-            {"min": 0.0, "label": "CPS <1", "therapy": "PD-L1 negative; pembrolizumab not indicated"},
-        ],
-    },
-    "hnscc": {
-        "name": "Head and Neck Squamous Cell Carcinoma",
-        "score_type": "CPS",
-        "thresholds": [
-            {"min": 20.0, "label": "CPS >=20", "therapy": "Pembrolizumab monotherapy (1st line recurrent/metastatic)"},
-            {"min": 1.0, "label": "CPS 1-19", "therapy": "Pembrolizumab + chemotherapy (1st line)"},
-            {"min": 0.0, "label": "CPS <1", "therapy": "PD-L1 negative; pembrolizumab not indicated"},
-        ],
-    },
+    "nsclc": {"name": "Non-Small Cell Lung Cancer (NSCLC)", "score_type": "TPS",
+              "thresholds": [{"min": 50.0, "label": "TPS >=50%"}, {"min": 1.0, "label": "TPS 1-<50%"}, {"min": 0.0, "label": "TPS <1%"}]},
+    "gastric": {"name": "Gastric/GEJ Adenocarcinoma", "score_type": "CPS",
+                "thresholds": [{"min": 10.0, "label": "CPS >=10"}, {"min": 5.0, "label": "CPS 5-<10"},
+                               {"min": 1.0, "label": "CPS 1-<5"}, {"min": 0.0, "label": "CPS <1"}]},
+    "tnbc": {"name": "Triple-Negative Breast Cancer (TNBC)", "score_type": "CPS",
+             "thresholds": [{"min": 10.0, "label": "CPS >=10"}, {"min": 1.0, "label": "CPS 1-<10"}, {"min": 0.0, "label": "CPS <1"}]},
+    "urothelial": {"name": "Urothelial Carcinoma", "score_type": "CPS",
+                   "thresholds": [{"min": 10.0, "label": "CPS >=10"}, {"min": 1.0, "label": "CPS 1-<10"}, {"min": 0.0, "label": "CPS <1"}]},
+    "cervical": {"name": "Cervical Cancer", "score_type": "CPS",
+                 "thresholds": [{"min": 1.0, "label": "CPS >=1"}, {"min": 0.0, "label": "CPS <1"}]},
+    "esophageal": {"name": "Esophageal Squamous Cell Carcinoma", "score_type": "CPS",
+                   "thresholds": [{"min": 10.0, "label": "CPS >=10"}, {"min": 1.0, "label": "CPS 1-<10"}, {"min": 0.0, "label": "CPS <1"}]},
+    "hnscc": {"name": "Head and Neck Squamous Cell Carcinoma", "score_type": "CPS",
+              "thresholds": [{"min": 20.0, "label": "CPS >=20"}, {"min": 1.0, "label": "CPS 1-<20"}, {"min": 0.0, "label": "CPS <1"}]},
 }
-
 
 def interpret_for_cancer_type(score_value: float, cancer_type: str) -> Dict[str, Any]:
     """
@@ -279,8 +247,11 @@ def interpret_for_cancer_type(score_value: float, cancer_type: str) -> Dict[str,
 
     Returns
     -------
-    dict with cancer_type, score_type, score_value, threshold_met, therapy
+    dict with cancer_type, score_type, score_value, threshold_met and clinical caution
     """
+    _validate_area("score_value", score_value)
+    if score_value > 100:
+        raise ValueError("score_value must not exceed 100")
     cancer_type = cancer_type.lower().strip()
     if cancer_type not in CANCER_TYPE_THRESHOLDS:
         valid = ", ".join(sorted(CANCER_TYPE_THRESHOLDS.keys()))
@@ -295,7 +266,7 @@ def interpret_for_cancer_type(score_value: float, cancer_type: str) -> Dict[str,
                 "score_type": info["score_type"],
                 "score_value": score_value,
                 "threshold_met": threshold["label"],
-                "therapy": threshold["therapy"],
+                "therapy": "No treatment recommendation: confirm current tumor-, assay- and indication-specific labeling.",
             }
 
     return {
@@ -303,7 +274,7 @@ def interpret_for_cancer_type(score_value: float, cancer_type: str) -> Dict[str,
         "score_type": info["score_type"],
         "score_value": score_value,
         "threshold_met": "Below all thresholds",
-        "therapy": "No PD-L1-directed therapy indicated",
+        "therapy": "No treatment recommendation: confirm current tumor-, assay- and indication-specific labeling.",
     }
 
 
@@ -345,7 +316,9 @@ ASSAY_INFO = {
 
 def get_assay_info(assay_name: str) -> Dict[str, Any]:
     """Get information about a specific PD-L1 assay."""
-    key = assay_name.upper().replace(" ", "").replace("-", "")
+    key = assay_name.upper().replace(" ", "")
+    if key.replace("-", "") == "288":
+        key = "28-8"
     if key not in ASSAY_INFO:
         valid = ", ".join(sorted(ASSAY_INFO.keys()))
         raise ValueError(f"Unknown assay '{assay_name}'. Valid: {valid}")
@@ -369,23 +342,29 @@ def process_batch(input_csv: str, output_csv: str) -> int:
         fieldnames = list(reader.fieldnames or [])
         rows = list(reader)
 
-    out_fields = fieldnames + ["tps", "tps_category", "cps", "cps_category",
-                               "therapy_recommendation"]
+    required = {"pd_l1_positive_tumor_cells", "total_viable_tumor_cells"}
+    missing = required.difference(fieldnames)
+    if missing:
+        raise ValueError("Missing required CSV columns: " + ", ".join(sorted(missing)))
+
+    out_fields = list(dict.fromkeys(fieldnames + ["tps", "tps_category", "cps", "cps_category",
+                               "therapy_recommendation"]))
     out_rows = []
 
     for row in rows:
         tumor_pos = int(row.get("pd_l1_positive_tumor_cells", 0))
-        total = int(row.get("total_viable_tumor_cells", 1))
+        total = int(row["total_viable_tumor_cells"])
         lymph = int(row.get("pd_l1_positive_lymphocytes", 0))
         macro = int(row.get("pd_l1_positive_macrophages", 0))
-        cancer = row.get("cancer_type", "nsclc")
+        cancer = (row.get("cancer_type") or "nsclc").strip().lower()
 
         tps_result = calculate_tps(tumor_pos, total)
         cps_result = calculate_cps(tumor_pos, lymph, macro, total)
 
         therapy = ""
         try:
-            interp = interpret_for_cancer_type(cps_result["cps"], cancer)
+            score = tps_result["tps_unrounded"] if cancer == "nsclc" else cps_result["cps_unrounded"]
+            interp = interpret_for_cancer_type(score, cancer)
             therapy = interp["therapy"]
         except ValueError:
             therapy = "Unknown cancer type"
@@ -401,7 +380,12 @@ def process_batch(input_csv: str, output_csv: str) -> int:
     with open(output_csv, mode="w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=out_fields)
         writer.writeheader()
-        writer.writerows(out_rows)
+        for row in out_rows:
+            # Escape spreadsheet formula prefixes in untrusted CSV text cells.
+            writer.writerow({
+                key: ("'" + value if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")) else value)
+                for key, value in row.items()
+            })
 
     return len(out_rows)
 

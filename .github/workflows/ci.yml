@@ -24,17 +24,22 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install fastapi uvicorn pydantic pytest
+        pip install "fastapi>=0.110,<1" "uvicorn>=0.29,<1" "pydantic>=2,<3" "pytest>=8,<10"
 
     - name: Run Pytest Suite
       run: |
         pytest -v
 
-    - name: Security SAST & Zero-PHI Audit
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+
+    - name: Validate browser calculator
       run: |
-        python -c "
-        from agents.base import PHIGuard, AuditLogger
-        import pytest
-        assert AuditLogger.verify_integrity() is True
-        print('Security & Zero-PHI Audit Passed!')
-        "
+        node --check web/app.js
+        node --test web/app.test.cjs
+
+    - name: Security smoke test
+      run: |
+        python -c "from agents.base import PHIGuard, AuditLogger; assert AuditLogger.verify_integrity()"

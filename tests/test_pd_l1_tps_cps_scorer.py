@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-from agents.base import PHIGuard, AuditLogger, SecurityException
+from agents.base import PHIGuard, AuditLogger, AuditTrail, SecurityException
 from agents.models import SystemTaskPayload, UrgencyLevel, SystemIntegrityStatus
 from agents.workers import InvariantQCWorker, SafetyEscalationWorker, ProtocolConformanceWorker
 from agents.supervisor import SystemSupervisor
@@ -63,3 +63,37 @@ def test_supervisor_consensus_and_audit():
     assert main(["audit", "--task-id", "CLI-TEST-01"]) == 0
     assert main(["chat", "Explain", "specifications"]) == 0
     assert main(["verify-audit"]) == 0
+
+
+def test_audit_hmac_detects_modified_entries():
+    trail = AuditTrail(secret_key="unit-test-only")
+    trail.log("tester", "local", "event", {"status": "ok"})
+    assert trail.verify_integrity()
+    trail.logs[0]["event_type"] = "tampered"
+    assert not trail.verify_integrity()
+
+
+def test_audit_trail_returns_defensive_copies():
+    trail = AuditTrail(secret_key="unit-test-only")
+    trail.log("tester", "local", "event", {"status": "ok"})
+    trail.get_trail()[0]["actor"] = "modified"
+    assert trail.verify_integrity()
+
+
+def test_api_log_access_requires_token(monkeypatch):
+    from fastapi import HTTPException
+    from agents.api import api_audit_logs
+    monkeypatch.delenv("API_TOKEN", raising=False)
+    with pytest.raises(HTTPException) as blocked:
+        api_audit_logs(None)
+    assert blocked.value.status_code == 403
+    monkeypatch.setenv("API_TOKEN", "test-token")
+    with pytest.raises(HTTPException):
+        api_audit_logs("Bearer wrong-token")
+    assert api_audit_logs("Bearer test-token")["verified"]
+
+
+def test_supervisor_rejects_non_finite_metric():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        SystemTaskPayload(task_id="T", target_identifier="SPECIMEN", primary_metric=float("nan"))
