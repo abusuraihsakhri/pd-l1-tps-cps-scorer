@@ -1,206 +1,63 @@
-# PD-L1 TPS & CPS Immunoscore Calculator
+# PD-L1 TPS & CPS Scorer
 
-> **Domain:** Clinical Decision Support & Biomedical Computing
-> **Reference Guidelines & Standards:** Standard Clinical Formulations & ISO/IEC Quality Frameworks
+A numerical PD-L1 immunohistochemistry scoring calculator for research, teaching and manual pathology review. Computes Tumor Proportion Score (TPS), Combined Positive Score (CPS) and area-based immune-cell (IC) percentage.
 
-<div align="center">
+## Browser application
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-3776AB.svg?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688.svg?logo=fastapi&logoColor=white)
-![Audit Trail](https://img.shields.io/badge/Audit-HMAC--SHA256_Tamper--Evident-brightgreen.svg)
-![Zero-PHI Guard](https://img.shields.io/badge/Guard-Zero--PHI_Outbound-blue.svg)
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)
+Run `python -m http.server 8001` at the repository root and visit `http://localhost:8001/`; the root page redirects to `web/`. The static site is also structured for GitHub Pages deployment from the `master` branch. Confirm live publishing in the repository's Pages settings; a working public endpoint is not assumed.
 
-</div>
+The browser calculator:
+- Uses TPS = 100 × PD-L1-positive viable tumor cells / total viable tumor cells.
+- Uses CPS = 100 × (positive tumor cells + positive lymphocytes + positive macrophages) / total viable tumor cells, **capped at 100**.
+- Uses IC = 100 × PD-L1-positive immune-cell area / total evaluated tumor area.
+- Validates inputs, displays descriptive expression strata and flags counts below 100 viable tumor cells. Categories use **unrounded** scores.
+- Supports local CSV import and scored CSV export (1,000 cases / 2 MB maximum).
 
----
+**Privacy:** All browser calculations and CSV imports stay within the browser. No backend submission, tracking API or persistent browser storage is used. Do not include patient identifiers.
 
-## What It Does
+## Command line
 
-PD-L1 TPS & CPS Immunoscore Calculator implements PD-L1 scoring for immunotherapy eligibility assessment:
+Python 3.10 or later. Core calculations use the standard library.
 
-- **Tumor Proportion Score (TPS)**
-- **Combined Positive Score (CPS)**
-- **Immune Cell (IC) score**
-
-### References
-
-- Herbst RS et al. Nature. 2014;515(7528):563-567
-- Kulangara K et al. Appl Immunohistochem Mol Morphol. 2019;27(2):99-106
-- FDA pembrolizumab prescribing information
-
-Zero-dependency Python implementation (stdlib only for core scoring).
-License: MIT
-
----
-
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/abusuraihsakhri/pd-l1-tps-cps-scorer.git
-cd pd-l1-tps-cps-scorer
-
-# Install dependencies (for enterprise features and testing)
-pip install fastapi uvicorn pydantic pytest
-```
-
----
-
-## Key Capabilities & Algorithmic Modules
-
-### Analytical Functions
-
-- **`calculate_tps()`**: Calculate Tumor Proportion Score (TPS).
-  - TPS = (PD-L1 positive tumor cells / Total viable tumor cells) x 100
-  - Returns: dict with tps, tps_category, description, interpretation
-
-- **`calculate_cps()`**: Calculate Combined Positive Score (CPS).
-  - CPS = (PD-L1 positive cells [tumor + lymphocytes + macrophages] / Total viable tumor cells) x 100
-  - Returns: dict with cps, cps_category, component counts, interpretation
-
-- **`calculate_ic_score()`**: Calculate Immune Cell (IC) score for atezolizumab (SP142 assay).
-  - IC score = % of tumor area covered by PD-L1 positive immune cells
-  - Returns: dict with ic_score, ic_category, description
-
-- **`interpret_for_cancer_type()`**: Interpret a PD-L1 score for a specific cancer type.
-  - Supports: nsclc, gastric, tnbc, urothelial, cervical, esophageal, hnscc
-  - Returns: dict with cancer_type, score_type, score_value, threshold_met, therapy
-
-- **`get_assay_info()`**: Get information about a specific PD-L1 assay.
-  - Supports: 22C3, 28-8, SP142, SP263
-
----
-
-## CLI Quickstart & Usage
-
-### 1. Calculate TPS
 ```bash
 python cli.py tps --positive 50 --total 100
-```
-
-### 2. Calculate CPS
-```bash
 python cli.py cps --tumor-pos 10 --lymph-pos 5 --macro-pos 3 --total-tumor 100
+python cli.py ic --ic-area 5 --tumor-area 100
+python cli.py interpret --score 50 --cancer-type nsclc
+python cli.py assay --name 28-8
+python cli.py batch --input sample.csv --output results.csv
 ```
 
-### 3. Calculate IC Score
+Batch CSV requires columns `pd_l1_positive_tumor_cells` and `total_viable_tumor_cells`. Optional columns: `pd_l1_positive_lymphocytes`, `pd_l1_positive_macrophages` and `cancer_type`. For NSCLC, the descriptive score strata use **TPS**, not CPS. No treatment recommendations are generated.
+
+## Optional REST API and supervisor
+
 ```bash
-python cli.py ic --ic-area 5.0 --tumor-area 100.0
+python -m pip install "fastapi>=0.110,<1" "uvicorn>=0.29,<1" "pydantic>=2,<3"
+python cli.py serve --host 127.0.0.1 --port 8000
 ```
 
-### 4. Interpret for Cancer Type
-```bash
-python cli.py interpret --score 60 --cancer-type nsclc
-```
+The endpoints are `/health`, `/metrics`, `/api/audit`, `/api/chat` and `/api/audit/logs`. The supervisor is a generic demonstration system, **not** a validated PD-L1 scoring engine or clinical decision-support system. The chat response is deterministic mock output. Do not use this API to process protected health information.
 
-### 5. Get Assay Information
-```bash
-python cli.py assay --name 22C3
-```
+Audit log retrieval requires an environment-configured `API_TOKEN` and an `Authorization: Bearer <API_TOKEN>` header. For Docker Compose, copy `.env.example` to a private `.env`, configure strong random `AUDIT_SECRET_KEY` and `API_TOKEN` values, and run `docker compose up --build`. Do not commit .env.
 
-### 6. Batch Process CSV
-```bash
-python cli.py batch -i sample.csv -o results.csv
-```
-
-### 7. Enterprise Supervisor Audit
-```bash
-python cli.py audit --task-id TASK-001 --primary 25.0 --secondary 8.0
-```
-
-### 8. Supervisory Chat
-```bash
-python cli.py chat "Explain PD-L1 scoring"
-```
-
-### 9. Verify Audit Trail
-```bash
-python cli.py verify-audit
-```
-
-### 10. Start REST API Server
-```bash
-python cli.py serve --host 0.0.0.0 --port 8000
-```
-
----
-
-## REST API Endpoints
-
-When running the server (`python cli.py serve`), the following endpoints are available:
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health and metadata check |
-| `/metrics` | GET | Prometheus operational metrics |
-| `/api/audit` | POST | Dispatch task payload across specialized workers |
-| `/api/chat` | POST | Air-gapped supervisory conversational assistant |
-| `/api/audit/logs` | GET | Retrieve and verify HMAC audit trail |
-
----
-
-## Security & Enterprise Architecture
-
-- **Zero-PHI Outbound Interceptor:** Active regex inspection blocking SSNs, MRNs, phone numbers, and patient identifiers.
-- **Tamper-Evident HMAC-SHA256 Audit Trail:** Chained, cryptographically signed logs for every evaluation.
-- **Secure Key Management:** Audit keys generated via `secrets.token_hex()` or configured via `AUDIT_SECRET_KEY` environment variable.
-- **FastAPI & Prometheus Telemetry:** Exposes OpenAPI 3.1 REST endpoints and operational Prometheus metrics.
-
----
-
-## Testing & Verification
-
-Run the automated test suite:
+## Tests
 
 ```bash
+python -m pip install "fastapi>=0.110,<1" "uvicorn>=0.29,<1" "pydantic>=2,<3" "pytest>=8,<10"
 pytest -v
+node --check web/app.js
+node --test web/app.test.cjs
 ```
 
-Execute high-throughput batch simulation benchmarks:
+GitHub Actions runs Python tests on 3.10, 3.11 and 3.12 and JavaScript tests under Node.js 22. The website uses standard HTML/CSS/JavaScript and is intended for modern mobile and desktop browsers; it does not require server-side Python or Pyodide.
 
-```bash
-python simulator.py 1000
-```
+## Clinical limitations
 
----
+The numerical results rely on qualified pathological assessment, validated staining, correct cell identification and assay-specific specimen adequacy requirements. This tool does **not** review images, validate assays, determine treatment eligibility or issue therapy recommendations. Cutoffs and prescribing indications depend on tumor type, assay, line of treatment and current approved labeling.
 
-## Container Deployment
+Scoring references: [Agilent PD-L1 IHC 22C3 pharmDx overview](https://www.agilent.com/en/product/pharmdx/pd-l1-ihc-22c3-pharmdx-overview) and [official intended-use details](https://www.agilent.com/en-us/product/pharmdx/pd-l1-ihc-22c3-pharmdx/pd-l1-ihc-22c3-pharmdx-product-page).
 
-```bash
-docker build -t pd-l1-tps-cps-scorer .
-docker run -p 8000:8000 -e AUDIT_SECRET_KEY=your-secret-key pd-l1-tps-cps-scorer
-```
+## License
 
-Or using Docker Compose:
-
-```bash
-docker-compose up -d
-```
-
----
-
-## Project Structure
-
-```
-pd-l1-tps-cps-scorer/
-├── pdl1_scorer.py      # Core scoring algorithms & CLI
-├── cli.py              # CLI entry point
-├── enrichment.py       # Enrichment feature engines
-├── simulator.py        # High-throughput simulation
-├── agents/             # Enterprise agent framework
-│   ├── base.py         # Security, PHI guard, audit trail
-│   ├── models.py       # Pydantic schemas
-│   ├── supervisor.py   # Supervisor orchestrator
-│   ├── workers.py      # Specialized worker agents
-│   ├── api.py          # FastAPI REST server
-│   ├── learning.py     # Bayesian calibration engine
-│   ├── metrics.py      # Prometheus metrics
-│   └── streamer.py     # WebSocket telemetry
-├── web/                # Operations console (HTML)
-├── tests/              # Test suite
-├── Dockerfile          # Container definition
-├── docker-compose.yml  # Compose configuration
-└── openapi_spec.json   # OpenAPI 3.1 specification
-```
+[MIT License](LICENSE).

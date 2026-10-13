@@ -35,7 +35,7 @@ def _validate_count(name: str, value: int, *, positive: bool = False) -> None:
 def _validate_area(name: str, value: float, *, positive: bool = False) -> None:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise ValueError(f"{name} must be a finite number")
-    if value < (0.0 if not positive else 0.0) or (positive and value == 0):
+    if value < 0 or (positive and value == 0):
         raise ValueError(f"{name} must be {'> 0' if positive else '>= 0'}; got {value}")
 
 
@@ -245,7 +245,7 @@ def interpret_for_cancer_type(score_value: float, cancer_type: str) -> Dict[str,
 
     Returns
     -------
-    dict with cancer_type, score_type, score_value, threshold_met, therapy
+    dict with cancer_type, score_type, score_value, threshold_met and clinical caution
     """
     _validate_area("score_value", score_value)
     if score_value > 100:

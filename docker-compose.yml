@@ -1,4 +1,4 @@
- services:
+services:
   pd-l1-tps-cps-scorer:
     build: .
     container_name: pd-l1-tps-cps-scorer
@@ -6,6 +6,7 @@
       - "8000:8000"
     environment:
       - AUDIT_SECRET_KEY=${AUDIT_SECRET_KEY:?Set a strong AUDIT_SECRET_KEY before starting}
+      - API_TOKEN=${API_TOKEN:?Set a strong API_TOKEN before starting}
       - MODEL_PROVIDER=mock
     restart: unless-stopped
     healthcheck:

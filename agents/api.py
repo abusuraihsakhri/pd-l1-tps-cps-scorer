@@ -1,8 +1,10 @@
 """
 FastAPI REST API Server for Pd L1 Tps Cps Scorer.
 """
+import os
+import hmac
 from typing import Dict, Any, List
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 from .base import AuditLogger, PHIGuard
 from .models import SystemTaskPayload, ConsensusDossier
@@ -51,5 +53,9 @@ def api_chat(req: ChatRequest):
 
 
 @app.get("/api/audit/logs")
-def api_audit_logs():
+def api_audit_logs(authorization: str | None = Header(default=None)):
+    # Audit metadata should not be exposed without an explicit bearer token.
+    token = os.getenv("API_TOKEN")
+    if not token or not authorization or not hmac.compare_digest(authorization, "Bearer " + token):
+        raise HTTPException(status_code=403, detail="Audit log access requires API_TOKEN")
     return {"audit_trail": AuditLogger.get_trail(), "verified": AuditLogger.verify_integrity()}
