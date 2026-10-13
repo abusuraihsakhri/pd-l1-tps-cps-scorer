@@ -78,3 +78,22 @@ def test_audit_trail_returns_defensive_copies():
     trail.log("tester", "local", "event", {"status": "ok"})
     trail.get_trail()[0]["actor"] = "modified"
     assert trail.verify_integrity()
+
+
+def test_api_log_access_requires_token(monkeypatch):
+    from fastapi import HTTPException
+    from agents.api import api_audit_logs
+    monkeypatch.delenv("API_TOKEN", raising=False)
+    with pytest.raises(HTTPException) as blocked:
+        api_audit_logs(None)
+    assert blocked.value.status_code == 403
+    monkeypatch.setenv("API_TOKEN", "test-token")
+    with pytest.raises(HTTPException):
+        api_audit_logs("Bearer wrong-token")
+    assert api_audit_logs("Bearer test-token")["verified"]
+
+
+def test_supervisor_rejects_non_finite_metric():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        SystemTaskPayload(task_id="T", target_identifier="SPECIMEN", primary_metric=float("nan"))
